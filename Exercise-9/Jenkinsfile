@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Build') {
+            steps {
+                echo 'Building the Flask application image...'
+                dir('Exercise-9') {
+                    sh 'docker build -t exercise9-app .'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo 'Running unit tests...'
+                sh 'docker run --rm --entrypoint python exercise9-app -m unittest test_app.py'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo 'Copying application to the mock deployment directory...'
+                sh '''
+                    rm -rf "$WORKSPACE/python-app-deploy"
+                    mkdir -p "$WORKSPACE/python-app-deploy"
+                    cp "$WORKSPACE/Exercise-9/app.py" "$WORKSPACE/python-app-deploy/"
+                    cp "$WORKSPACE/Exercise-9/requirements.txt" "$WORKSPACE/python-app-deploy/"
+                '''
+            }
+        }
+
+        stage('Run Application') {
+            steps {
+                echo 'Starting the deployed Flask application...'
+                sh '''
+                    docker rm -f exercise9-flask 2>/dev/null || true
+                    docker run -d --name exercise9-flask --network host exercise9-app
+                    sleep 5
+                '''
+            }
+        }
+
+        stage('Test Application') {
+            steps {
+                echo 'Checking the deployed Flask application...'
+                sh '''
+                    docker run --rm --network host python:3.11-slim \
+                    python -c "from urllib.request import urlopen; body = urlopen('http://localhost:5000/').read().decode(); print(body); assert body == 'Hello, Jenkins Multi-Stage Pipeline!'"
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rm -f exercise9-flask 2>/dev/null || true'
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed. Check the console output.'
+        }
+    }
+}
